@@ -1,38 +1,95 @@
 ﻿using System;
+using System.Reflection;
+using System.Threading;
 using System.Threading.Tasks;
+using MediatR;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
+using Wake.Data;
+using Wake.EF;
+using Wake.Shared.Writers;
 
-namespace WakeOnLan
+namespace Wake.Cmd
 {
-    class Program
+    static class Program
     {
         private static async Task Main(string[] args)
         {
             try
             {
-                using IHost host = CreateHostBuilder(args).Build();
-                var dbPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-                await host.RunAsync();
+                var provider = BuildServiceProvider();
+
+                await MigrateDb(provider);
+                await RunMainRoutine(provider, args);
             }
             catch (OperationCanceledException)
             {
-                // Meh
-            }
-            catch (Exception exception)
-            {
-                Console.WriteLine(exception);
+                Console.WriteLine("Cancellation Requested.");
             }
         }
 
-        static IHostBuilder CreateHostBuilder(string[] args) =>
-            Host.CreateDefaultBuilder(args)
-                .ConfigureServices(ConfigureServices);
-        
-
-        private static void ConfigureServices(HostBuilderContext builder, IServiceCollection collection)
+        private static async Task RunMainRoutine(ServiceProvider provider, string[] args)
         {
-            collection.AddHostedService<Wake>();
+            var mediator = provider.GetRequiredService<IMediator>();
+            var console = provider.GetRequiredService<IConsoleInteractive>();
+            if (args.Length == 0)
+            {
+                var cts = new CancellationTokenSource();
+                var startCmd = new RunMainCommand();
+                var result = await mediator.Send(startCmd, cts.Token);
+                if (result.IsFailure)
+                    console.WriteLine($"Error: {result.Error}");
+            }
+            else
+            {
+                var firstArg = args[0];
+                var result = await mediator.Send(new GetNetworkInterfaceByNameQuery(firstArg));
+                if (result.IsFailure)
+                    console.WriteLine($"Error: {result.Error}");
+                if (result.Value is null)
+                {
+                    result = await mediator.Send(new GetNetworkInterfaceByMacAddressQuery(firstArg));
+                    if (result.IsFailure)
+                        console.WriteLine($"Error: {result.Error}");
+                }
+
+                if (result.Value is null)
+                {
+                    console.Write($"Waking {firstArg}...");
+                    await mediator.Send(new WakeOnLanCommand(firstArg));
+                }
+                else
+                {
+                    console.Write($"Waking {result.Value.MacAddress}...");
+                    await mediator.Send(new WakeOnLanCommand(result.Value.MacAddress));
+                }
+            }
+        }
+
+        private static async Task MigrateDb(ServiceProvider provider)
+        {
+            var context = provider.GetRequiredService<WakeContext>();
+            await context.Database.MigrateAsync();
+        }
+
+        private static ServiceProvider BuildServiceProvider()
+        {
+            var services = new ServiceCollection();
+
+            services.AddDbContext<WakeContext>();
+            services.AddSingleton<IConsoleInteractive, ConsoleInteractive>();
+
+            var assemblies = new[]
+            {
+                Assembly.Load("Wake.Cmd"),
+                Assembly.Load("Wake.Data"),
+                Assembly.Load("Wake.EF"),
+                Assembly.Load("Wake.Features")
+            };
+            services.AddMediatR(assemblies);
+            services.AddAutoMapper(assemblies);
+
+            return services.BuildServiceProvider();
         }
     }
 }
