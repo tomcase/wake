@@ -2,8 +2,6 @@
 
 ## A command line tool to wake network devices over LAN
 
----
-
 If you're anything like me, you have way too many computers in your house. Wake is a tool that allows you to wake any devices on your network without having to get up and power them on manually, provided they have enabled Wake-On-LAN functionality in their BIOS.
 
 ### Usage
