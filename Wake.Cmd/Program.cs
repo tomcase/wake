@@ -55,12 +55,12 @@ namespace Wake.Cmd
 
                 if (result.Value is null)
                 {
-                    console.Write($"Waking {firstArg}...");
+                    console.WriteLine($"Waking {firstArg}...");
                     await mediator.Send(new WakeOnLanCommand(firstArg));
                 }
                 else
                 {
-                    console.Write($"Waking {result.Value.MacAddress}...");
+                    console.WriteLine($"Waking {result.Value.MacAddress}...");
                     await mediator.Send(new WakeOnLanCommand(result.Value.MacAddress));
                 }
             }
